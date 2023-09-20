@@ -7,7 +7,6 @@
 #include <Arduino.h>
 #include <M5Stack.h>
 #include <mcp_can.h>
-#include "m5_logo.h"
 
 //#include "ArduinoJson-v6.19.4.h"
 //#include "wifi_Server.h"
@@ -23,6 +22,8 @@ typedef struct canTxRxFlag
     static const int RX = 2;
 
 }canTxRxFlag;
+
+#define CANBUF_SIZE (100)
 
 typedef struct canRxBuffer
 {
@@ -73,20 +74,22 @@ typedef struct canTxBuffer
 extern char can_json[];
 
 void can_init();
-void can_setTestFlag( int txtest, int rxtest );
+void can_setTestFlag( int txtest, int show );
 void can_loop();
 void canbuf_init();
 void canTxbuf_set( int id, char dlc, int cycle, unsigned char *data, int txflag  );
 void canTxbuf_set_test( );
-void canbuf_send();
 void canbuf_sendSingle( int id );
-void onReceive(int packetSize);
-void can_recv();
+void canbuf_send();
+void canbuf_recv();
+//void onReceive(int packetSize);
 void printRecv();
 void setup_CallBack();
 void makeCanMsgJsonDummy();
 void makeCanMsgJson();
 int id2idx( int id );
+
+void M5_CanShowLCD( TFT_eSprite* sprite );
 
 //extern void canTxbuf_set( int id, int dlc, int cycle, char *data, int txflag  );
 //extern void canTxbuf_test( );

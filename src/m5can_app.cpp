@@ -1,63 +1,25 @@
 #include <m5can_app.h>
 
-
 // for mcp_can
-
-/**
- * variable for loop
- */
-byte data[8] = {0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07};
-
-/**
- * variable for CAN
- */
-long unsigned int rxId;
-unsigned char len = 0;
-unsigned char rxBuf[8];
-char msgString[128];
-
 #define CAN0_INT 15  // Set INT to pin 2
 MCP_CAN CAN0(12);    // Set CS to pin 10
 
 
 // for App
 // Lite版はcanbufの配列数を0x800にせず、1000以下ぐらいで運用
-
-const int bufNum = 100; 
+const int bufNum = CANBUF_SIZE; 
 canRxBuffer canbuf[bufNum];
 
 short id2idx_arr[ 0x800 ];
 int now_idx = 0;
 
 int tx_test_flag = 0;
-int rx_test_flag = 0;
+int show_flag = 0;
 
 int countInterval = 1000;
 int countMax = 5;
 
-
-// void can_init(){
-//    //Serial.println("CAN Sender");
-//    CAN.setPins(32, 27); // ESP-tx:2562-tx,  ESP-rx:2562-rx
-//    //CAN.setPins(4, 5);
-
-//   // start the CAN bus at 500 kbps
-//   if (!CAN.begin(500E3)) {
-//     Serial.println("Starting CAN failed!");
-//     while (1);
-//   }
-
-//   canbuf_init();
-
-//   // register the receive callback
-//   CAN.onReceive(onReceive);
-// }
-
 void can_init() {
-    // M5.Lcd.setTextSize(1);
-    // M5.Lcd.setCursor(0, 10);
-    // M5.Lcd.pushImage(0, 0, 320, 240, (uint16_t *)gImage_logoM5);
-    // M5.Lcd.printf("CAN Test B!\n");
 
     // Initialize MCP2515 running at 16MHz with a baudrate of 500kb/s and the
     // masks and filters disabled.
@@ -74,11 +36,12 @@ void can_init() {
 
 }
 
-// tx_test_flagが１だと、テスト用のID１～３０の適当なCANメッセージを送信
-// rx_test_flagが１だと、ESP32のシリアルで受信データを表示
-void can_setTestFlag( int txtest, int rxtest ){ //loopの前ぐらいに置く
+//  tx_test_flagが１だと、テスト用の適当なCANメッセージを送信
+//  show_flag = _show_flag;が１だと、LCDとESP32のシリアルで受信データを表示
+void can_setTestFlag( int txtest, int _show_flag ){ //loopの前ぐらいに置く
   tx_test_flag = txtest;
-  rx_test_flag = rxtest;
+  // rx_test_flag = rxtest;
+  show_flag = _show_flag;
 
 }
 
@@ -90,19 +53,7 @@ void can_loop(){
   }
 
   canbuf_send();
-  can_recv();
-
-
-    // byte sndStat = CAN0.sendMsgBuf(0x100, 0, 8, data);
-    // if (sndStat == CAN_OK) {
-    //     Serial.println("Message Sent Successfully!");
-    //     M5.Lcd.printf("Message Sent Successfully!\n");
-    // } else {
-    //     Serial.println("Error Sending Message...");
-    //     M5.Lcd.printf("Error Sending Message...\n");
-    // }
-    // delay(200);  // send data per 200ms
-
+  canbuf_recv();
   
 }
 
@@ -155,7 +106,7 @@ void canTxbuf_set_test(){
   // testdata[7] = 0;
   // canTxbuf_set( 0x732, 8, 732, testdata, 1);
 
-  for( int i=1; i<=30; i++){
+  for( int i=1; i<=10; i++){
     canbuf[i].dlc = i%8 + 1;
     canbuf[i].txrxFlag = 1;
     canbuf[i].cycleTime = canbuf[i].dlc * 100;
@@ -208,22 +159,14 @@ void canbuf_sendSingle( int idx ){
   // Serial.print(" ");
   // Serial.print(canbuf[id].data.u1[i]);  
 
-  if( tx_test_flag == 1 ){
-    Serial.print("canid: ");
-    Serial.print(canbuf[idx].id); 
-    Serial.print(" cycle: ");
-    Serial.print(canbuf[idx].cycleTime);    
-    Serial.print(" dlc: ");
-    Serial.print( (int)(canbuf[idx].dlc));    
-    Serial.print(" ");
-
+  if( show_flag == 2 ){
+    Serial.printf("canid: %d  cycle: %d  dlc: %d", canbuf[idx].id, canbuf[idx].cycleTime, (int)(canbuf[idx].dlc));
     for( int n=0; n<canbuf[idx].dlc; n++){
-      Serial.print(" ");
-      Serial.print(canbuf[idx].data.u1[n]);    
+      Serial.printf(" %d", canbuf[idx].data.u1[n]);
 
     } 
-    Serial.print(" time: ");
-    Serial.println(canbuf[idx].prevTime);    
+    Serial.printf(" time: %d", canbuf[idx].prevTime);
+    Serial.println();
   }
 }
 
@@ -242,7 +185,6 @@ void canbuf_send(){
         //Serial.print("after send");
         canbuf[i].prevTime = millis();
 
-
         //canbuf[i].data.u2[3]++; 
         // Serial.print("send id: ");
         // Serial.println(i);
@@ -251,10 +193,15 @@ void canbuf_send(){
   }
 }
 
-void can_recv() {
+void canbuf_recv() {
 
- int rx_id = -1;
- int rx_dlc = -1;
+  long unsigned int rxId;
+  unsigned char len = 0;
+  unsigned char rxBuf[8];
+  char msgString[128];
+
+  int rx_id = -1;
+  int rx_dlc = -1;
 
   if (!digitalRead(CAN0_INT))  // If CAN0_INT pin is low, read receive buffer
   {
@@ -265,23 +212,24 @@ void can_recv() {
       else
           sprintf(msgString, "Standard ID: 0x%.3lX  DLC: %1d  Data:", rxId, len);
 
-      Serial.print(msgString);
-      M5.Lcd.printf(msgString);
+      // if( rx_test_flag == 2 ){
+      //       Serial.print(msgString);
+      // }
 
       if ((rxId & 0x40000000) == 0x40000000) {  // Determine if message is a remote request frame.
           sprintf(msgString, " REMOTE REQUEST FRAME");
-          Serial.print(msgString);
       } 
       else {
         rx_id  = rxId;
         rx_dlc = (int)len;
         int rx_idx = id2idx( rx_id );
+        canbuf[rx_idx].id  = rx_id;
         canbuf[rx_idx].dlc = rx_dlc;
         canbuf[rx_idx].cycleTime = millis() - canbuf[rx_id].prevTime;
         canbuf[rx_idx].prevTime  = millis();
         canbuf[rx_idx].txrxFlag = canTxRxFlag::RX;
 
-        if( rx_test_flag == 1 ){
+        if( show_flag == 2 ){
           Serial.print("packet with id 0x");
           Serial.print(rx_id, HEX);    //Serial.print(" and length ");
           //Serial.println(packetSize);
@@ -295,26 +243,27 @@ void can_recv() {
             if( canbuf[rx_idx].data.u1[idx] != rxBuf[idx]){
               canbuf[rx_idx].noChange.rxCnt[idx] = 0;
             }
+
             canbuf[rx_idx].data.u1[idx] = rxBuf[idx];
             canbuf[rx_idx].noRecvCnt[idx] = 0;
-            if( rx_test_flag == 1 ){
+
+            if( show_flag == 2 ){
               Serial.print(" ");
               Serial.print( rxBuf[idx], HEX );
               Serial.print(", ");
             }            
 
             sprintf(msgString, " 0x%.2X", rxBuf[idx]);
-            Serial.print(msgString);
-            M5.Lcd.printf(msgString);
-        }
-        
 
-
+        }      
       }
-      M5.Lcd.printf("\n");
-      Serial.println();
+
+      if( show_flag == 2 ){
+        Serial.print(msgString);
+        Serial.println();
+        
+      }      
   }
- 
 }
 
 void recvDataTimeCount(){
@@ -355,3 +304,30 @@ void printRecv(){
     }
 
 }
+
+
+
+void M5_CanShowLCD( TFT_eSprite* sprite ){
+  if( show_flag == 0 ){
+    return;
+  }
+  (*sprite).setTextSize(1);
+
+  (*sprite).printf("   :ID :DLC :Cycle : Data\n" );
+  for( int i=0; i<CANBUF_SIZE; i++ ){
+    if( canbuf[i].txrxFlag == canTxRxFlag::TX ||  canbuf[i].txrxFlag == canTxRxFlag::RX ){
+      if( canbuf[i].txrxFlag == canTxRxFlag::TX ){ (*sprite).printf("Tx "); }
+      if( canbuf[i].txrxFlag == canTxRxFlag::RX ){ (*sprite).printf("Rx "); } 
+      //(*sprite).printf("i:%3X L:%d T:%5d D: ", canbuf[i].id, canbuf[i].dlc, canbuf[i].cycleTime );
+      (*sprite).printf(":%3X :%d :%5d : ", canbuf[i].id, canbuf[i].dlc, canbuf[i].cycleTime );
+      for( int j=0; j<canbuf[i].dlc; j++ ){
+        (*sprite).printf("%2X ", canbuf[i].data.u1[j] );
+      }
+      (*sprite).printf("\n");
+    }
+  }
+
+}
+
+
+
